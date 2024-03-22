@@ -1,0 +1,1 @@
+download the conversation from chatgpt. Unzip the file and copy and paste the `conversations.json` in this folder

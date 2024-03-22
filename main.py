@@ -1,14 +1,12 @@
 import json
 from datetime import datetime
 import pandas as pd
-import matplotlib.pyplot as plt
-from textblob import TextBlob
-from joblib import Parallel, delayed
 import torch.nn.functional as F
 from sentence_transformers import SentenceTransformer
 from sentence_transformers import util
 from tqdm import tqdm
 from diskcache import Index
+import fire 
 
 
 class ChatGPTInteractionData:
@@ -144,7 +142,7 @@ class FindDuplicateQueries:
                 new_qs,
                 convert_to_tensor=True,
                 show_progress_bar=True,
-                device="cuda",
+                device="cpu",
                 batch_size=12,
                 
             )
@@ -221,23 +219,57 @@ class FindDuplicateQueries:
         return pd.DataFrame(user_inspection_pairs), len(dup_set)
 
 
-def main():
-    file_path = "private_csv_json/conversations_nomair.json"
-    output_fpath = "private_csv_json/chatgpt_conv_analysis.csv"
+def main(qsize=256, cos_sim=0.8):
+    file_path = "private_csv_json/conversations.json"
+    output_fpath = "private_csv_json/all_queries.csv"
+    final_results_fpath = "result_csv/final_results.csv"
+
+    result_dict = {}
 
     gpt_data = ChatGPTInteractionData(file_path)
     df = gpt_data.getDF()
     df.to_csv(output_fpath, index=False)
+    
     df = pd.read_csv(output_fpath)
-    # df.dropna(subset=["user_query"], inplace=True) 
     df.dropna(subset=["user_query"], inplace=True)
-    dup = FindDuplicateQueries(df, query_size=256, cos_sim_threshold=0.80)
+
+    df["query_time"] = pd.to_datetime(df["query_time"])
+
+    min_date  =df["query_time"].min()
+    max_date = df["query_time"].max()
+
+    print(f"Min date: {min_date}")
+    print(f"Max date: {max_date}")
+
+    number_of_days = (max_date - min_date).days
+
+    dup = FindDuplicateQueries(df, query_size=qsize, cos_sim_threshold=cos_sim)
     dup_df, total_duplicates = dup.getDuplicateQueries()
-    print(f"Total duplicates found: {total_duplicates/len(df)}")
+    
+    result_dict["total_queries_without_filter"] = len(df)
+    result_dict["total_filterd_quieres"] = len(dup_df)
+    result_dict["total_duplicates"] = total_duplicates
+    result_dict["total_duplicates_percentage"] = total_duplicates/len(dup_df)
+    result_dict['query_size'] = qsize
+    result_dict['cos_sim_threshold'] = cos_sim
+    result_dict['min_date'] = min_date
+    result_dict['max_date'] = max_date
+    result_dict['number_of_days'] = number_of_days
+
+    # print(f"Total duplicates found: {total_duplicates/len(dup_df)}")
+
+    result_df = pd.DataFrame([result_dict])
+
+    result_df.to_csv(final_results_fpath, index=False) 
+
+
+    print(result_df)
+
     only_dup_df = dup_df[dup_df["duplicates"].apply(len) > 0]
     dup_df.to_csv("private_csv_json/scores_potent_duplicates.csv", index=False)
     only_dup_df.to_csv("private_csv_json/only_duplicates.csv", index=False)
 
 
-main()
+if __name__ == "__main__":
+    fire.Fire(main)
 
