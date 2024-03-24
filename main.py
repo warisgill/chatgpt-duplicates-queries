@@ -270,8 +270,6 @@ def main(qsize=256, cos_sim=0.78):
     trace_df.to_csv("result_csv/trace_duplicates.csv", index=False)
     print(f'>> Percentage of duplicate queries {result_dict["total_duplicates_percentage"]}')
 
-    print('>> Share 2 interesting examples from  ')
-
     print('>> Done')
 
 
