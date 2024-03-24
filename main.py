@@ -7,7 +7,7 @@ from sentence_transformers import util
 from tqdm import tqdm
 from diskcache import Index
 import fire 
-
+import copy
 
 class ChatGPTInteractionData:
     def __init__(self, fpath):
@@ -124,41 +124,24 @@ class FindDuplicateQueries:
         self.__filterQueries()
         self.embeddings = self.__getEmbeddings(self.df["user_query"].values)
 
-    def __nomicEmbedding(self, qs):
+    def __nomicEmbedding(self, new_qs):
         matryoshka_dim = 768
-        new_qs = []
-    
-        print(f"> checking embeddings from local storage")
-        new_qs = [ q for q in tqdm(qs) if q not in list(self.cache.keys())]
-
-        if len(new_qs) > 0:
-            model = SentenceTransformer(
-                "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
-            )
-            print(">> Embedding new queries")
-            # for q in tqdm(new_qs):
-            #     print(f"Embedding {q}")
-            embeddings = model.encode(
-                new_qs,
-                convert_to_tensor=True,
-                show_progress_bar=True,
-                device="cpu",
-                batch_size=12,
-                
-            )
-            embeddings = F.layer_norm(
-                embeddings, normalized_shape=(embeddings.shape[1],)
-            )
-            embeddings = embeddings[:, :matryoshka_dim]
-            embeddings = F.normalize(embeddings, p=2, dim=1)
-
-            print(">> storing new embeddings in cache") 
-            for i, k in tqdm(enumerate(new_qs)):
-                self.cache[k] = embeddings[i]
-        else:
-            print(">> Using embeddings from cache")
-
-        embeddings = [self.cache[k] for k in tqdm(qs)]
+        model = SentenceTransformer(
+            "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
+        )
+        print(">> Embedding new queries")
+        embeddings = model.encode(
+            new_qs,
+            convert_to_tensor=True,
+            show_progress_bar=True,
+            batch_size=12,
+            
+        )
+        embeddings = F.layer_norm(
+            embeddings, normalized_shape=(embeddings.shape[1],)
+        )
+        embeddings = embeddings[:, :matryoshka_dim]
+        embeddings = F.normalize(embeddings, p=2, dim=1)  
         return embeddings
 
     def __getEmbeddings(self, qs):
@@ -219,7 +202,12 @@ class FindDuplicateQueries:
         return pd.DataFrame(user_inspection_pairs), len(dup_set)
 
 
-def main(qsize=256, cos_sim=0.8):
+def main(qsize=256, cos_sim=0.78):
+    def _lambdaSetQueryEmpty(d):
+        d["query"] = ""
+        return d
+
+
     file_path = "private_csv_json/conversations.json"
     output_fpath = "private_csv_json/all_queries.csv"
     final_results_fpath = "result_csv/final_results.csv"
@@ -228,6 +216,10 @@ def main(qsize=256, cos_sim=0.8):
 
     gpt_data = ChatGPTInteractionData(file_path)
     df = gpt_data.getDF()
+    df["query_time"] = pd.to_datetime(df["query_time"])
+
+    # sort by query time ascending order
+    df = df.sort_values(by="query_time", ascending=True).reset_index(drop=True)
     df.to_csv(output_fpath, index=False)
     
     df = pd.read_csv(output_fpath)
@@ -235,6 +227,7 @@ def main(qsize=256, cos_sim=0.8):
 
     df["query_time"] = pd.to_datetime(df["query_time"])
 
+    
     min_date  =df["query_time"].min()
     max_date = df["query_time"].max()
 
@@ -245,6 +238,13 @@ def main(qsize=256, cos_sim=0.8):
 
     dup = FindDuplicateQueries(df, query_size=qsize, cos_sim_threshold=cos_sim)
     dup_df, total_duplicates = dup.getDuplicateQueries()
+    dup_df['corpus_id'] = dup_df.index
+    dup_df.to_csv("private_csv_json/scores_potent_duplicates.csv", index=False)
+
+
+    trace_df = copy.deepcopy(dup_df)
+    trace_df['query'] = ''
+    trace_df['duplicates'] = trace_df['duplicates'].apply(lambda x: [_lambdaSetQueryEmpty(d) for d in x])    
     
     result_dict["total_queries_without_filter"] = len(df)
     result_dict["total_filterd_quieres"] = len(dup_df)
@@ -258,16 +258,21 @@ def main(qsize=256, cos_sim=0.8):
 
     # print(f"Total duplicates found: {total_duplicates/len(dup_df)}")
 
-    result_df = pd.DataFrame([result_dict])
 
-    result_df.to_csv(final_results_fpath, index=False) 
-
-
-    print(result_df)
+    
 
     only_dup_df = dup_df[dup_df["duplicates"].apply(len) > 0]
-    dup_df.to_csv("private_csv_json/scores_potent_duplicates.csv", index=False)
     only_dup_df.to_csv("private_csv_json/only_duplicates.csv", index=False)
+
+    result_df = pd.DataFrame([result_dict])
+    result_df.to_csv(final_results_fpath, index=False) 
+    print(result_df)
+    trace_df.to_csv("result_csv/trace_duplicates.csv", index=False)
+    print(f'>> Percentage of duplicate queries {result_dict["total_duplicates_percentage"]}')
+
+    print('>> Share 2 interesting examples from  ')
+
+    print('>> Done')
 
 
 if __name__ == "__main__":
