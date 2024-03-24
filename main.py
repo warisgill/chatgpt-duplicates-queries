@@ -134,7 +134,7 @@ class FindDuplicateQueries:
             new_qs,
             convert_to_tensor=True,
             show_progress_bar=True,
-            batch_size=12,
+            batch_size=4,
             
         )
         embeddings = F.layer_norm(

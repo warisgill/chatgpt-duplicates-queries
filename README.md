@@ -16,6 +16,9 @@ This repository contains a tool for detecting duplicate queries in ChatGPT conve
    ```bash
    conda create --name llm11 python=3
    conda activate llm11
+
+   git clone https://github.com/warisgill/chatgpt-duplicates-queries.git
+   cd chatgpt-duplicates-queries/
    ```
 
 2. **Install Required Libraries**  
